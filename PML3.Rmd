@@ -1,0 +1,130 @@
+---
+title: "Practical Machine Learning"
+author: "Kelvin Han"
+date: "17 August 2015"
+output: html_document
+---
+
+### Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+### Data Source 
+
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+
+### Data Exploration
+From the summary, it is observed that 
+a) X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp and new_window are redundant
+b) there are blank and #DIV/0! values
+```{r}
+DataExploration <- read.csv("pml-training.csv")
+summary(DataExploration)
+```
+
+### Data Cleaning
+Read the two csv files into two data frames and defining “NA” and “#DIV/0!” as na.strings. The following columns are removed.
+a) 6 redundant columns: X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp and new_window  
+b) 4 columns with number of NA values at 100%  
+c) 96 columns with number of NA values > 90%
+```{r}
+trainingData <- read.csv("pml-training.csv",header = TRUE, na.strings = c("NA", "#DIV/0!"))
+testData <- read.csv("pml-testing.csv",header = TRUE, na.strings = c("NA", "#DIV/0!"))
+
+trainingData <- Filter(function(x)!any(is.na(x)), trainingData)
+trainingData$X <- NULL
+trainingData$user_name <- NULL
+trainingData$raw_timestamp_part_1 <- NULL
+trainingData$raw_timestamp_part_2 <- NULL
+trainingData$cvtd_timestamp <- NULL
+trainingData$new_window <- NULL
+trainingData$num_window <- NULL
+
+testData <- Filter(function(x)!any(is.na(x)), testData)
+testData$X <- NULL
+testData$user_name <- NULL
+testData$raw_timestamp_part_1 <- NULL
+testData$raw_timestamp_part_2 <- NULL
+testData$cvtd_timestamp <- NULL
+testData$new_window <- NULL
+testData$num_window <- NULL
+
+dim(trainingData)
+dim(testData)
+```
+
+### Libraries Required
+Using Caret, RandomForest and doMC (for MAC)
+```{r}
+library(caret)
+library(randomForest)
+library(doMC)
+registerDoMC(cores = 2)
+```
+
+
+### Datasets Preparation
+Split the training data into a training (60%) and validation (40%) dataset.
+```{r}
+set.seed(12345)
+inTrain <- createDataPartition(y=trainingData$classe,p=0.6, list=FALSE)
+trainingSet <- trainingData[inTrain,]
+testingSet <- trainingData[-inTrain,]
+```
+
+### Prediction Model Training
+Using various models, we shortlist the five highest accuracy models
+RandomForest 0.99		
+Single C5.0 Ruleset			0.96
+Single C5.0 Tree			0.95
+Support Vector Machines with Radial Basis Function Kernel 0.92
+Quadratic Discriminate Analysis 	0.89
+```{r}
+system.time(modelFitRF <- train(classe ~., data=trainingSet, method="rf", trControl=trainControl (method="cv",number=5), prox=TRUE, allowParallel=TRUE))
+system.time(modelFitC5R <- train(classe ~., data=trainingSet, method="C5.0Rules"))
+system.time(modelFitC5T <- train(classe ~., data=trainingSet, method="C5.0Tree"))
+system.time(modelFitSVM <- train(classe ~., data=trainingSet, method="svmRadial", trControl=trainControl (method="cv",number=5), prox=TRUE, allowParallel=TRUE))
+system.time(modelFitQDA <- train(classe ~., data=trainingSet, method="qda"))
+
+predictModelRF <- predict(modelFitRF,testingSet)
+predictModelSVM <- predict(modelFitSVM,testingSet)
+predictModelC5R <- predict(modelFitC5R,testingSet)
+predictModelC5T <- predict(modelFitC5T,testingSet)
+predictModelQDA <- predict(modelFitQDA,testingSet)
+as.numeric(confusionMatrix(predictModelRF,testingSet$classe)$overall[1])
+as.numeric(confusionMatrix(predictModelC5R,testingSet$classe)$overall[1])
+as.numeric(confusionMatrix(predictModelC5T,testingSet$classe)$overall[1])
+as.numeric(confusionMatrix(predictModelSVM,testingSet$classe)$overall[1])
+as.numeric(confusionMatrix(predictModelQDA,testingSet$classe)$overall[1])
+```
+
+Confusion Matrix for the best model (Random Forest) based on accuracy
+```{r}
+confusionMatrix(predictModelRF,testingSet$classe)
+```
+
+The expected out of sample error is expected to be very small (<1%)
+```{r}
+prediction <- predict(modelFitRF,testData)
+```
+
+### Files generation for submission
+Generate files for submission
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(prediction)
+```
